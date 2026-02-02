@@ -1,19 +1,19 @@
 import os
-import torch
-import torch.nn as nn
-import numpy as np
-import torch.nn.functional as functional
-import torchvision
-import matplotlib.pyplot as plt
-import cv2
-from tqdm import tqdm
 import pickle
 
+import cv2
+import matplotlib.pyplot as plt
+import numpy as np
+import torch
+import torch.nn as nn
+import torch.nn.functional as functional
+import torchvision
 from skimage.metrics import structural_similarity
+from tqdm import tqdm
 
 get_mse = lambda x, y: torch.mean((x - y) ** 2)
 
-    
+
 def get_psnr(x, y):
     if torch.max(x) == 0 or torch.max(y) == 0:
         return torch.zeros(1)
@@ -21,7 +21,7 @@ def get_psnr(x, y):
         x_norm = (x - torch.min(x)) / (torch.max(x) - torch.min(x))
         y_norm = (y - torch.min(y)) / (torch.max(y) - torch.min(y))
         mse = get_mse(x_norm, y_norm)
-        psnr = -10. * torch.log(mse) / torch.log(torch.Tensor([10.]).to(x.device))
+        psnr = -10.0 * torch.log(mse) / torch.log(torch.Tensor([10.0]).to(x.device))
     return psnr
 
 
@@ -82,7 +82,7 @@ def get_ssim_3d(arr1, arr2, size_average=True, PIXEL_MAX=1.0):
     arr2_d = np.transpose(arr2, (0, 2, 3, 1))
     ssim_d = []
     for i in range(N):
-        ssim = structural_similarity(arr1_d[i], arr2_d[i])
+        ssim = structural_similarity(arr1_d[i], arr2_d[i], data_range=PIXEL_MAX)
         ssim_d.append(ssim)
     ssim_d = np.asarray(ssim_d, dtype=np.float64)
 
@@ -91,16 +91,16 @@ def get_ssim_3d(arr1, arr2, size_average=True, PIXEL_MAX=1.0):
     arr2_h = np.transpose(arr2, (0, 1, 3, 2))
     ssim_h = []
     for i in range(N):
-        ssim = structural_similarity(arr1_h[i], arr2_h[i])
+        ssim = structural_similarity(arr1_h[i], arr2_h[i], data_range=PIXEL_MAX)
         ssim_h.append(ssim)
     ssim_h = np.asarray(ssim_h, dtype=np.float64)
 
     # Width
-    # arr1_w = np.transpose(arr1, (0, 1, 2, 3))
-    # arr2_w = np.transpose(arr2, (0, 1, 2, 3))
+    arr1_w = np.transpose(arr1, (0, 1, 2, 3))
+    arr2_w = np.transpose(arr2, (0, 1, 2, 3))
     ssim_w = []
     for i in range(N):
-        ssim = structural_similarity(arr1[i], arr2[i])
+        ssim = structural_similarity(arr1_w[i], arr2_w[i], data_range=PIXEL_MAX)
         ssim_w.append(ssim)
     ssim_w = np.asarray(ssim_w, dtype=np.float64)
 
@@ -121,4 +121,4 @@ def cast_to_image(tensor, normalize=True):
         img = tensor
     if normalize:
         img = cv2.normalize(img, None, 0, 1, cv2.NORM_MINMAX)
-    return img[..., np.newaxis]
+    return img

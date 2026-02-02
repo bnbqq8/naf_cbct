@@ -5,3 +5,4 @@ logs/
 TIGRE*/
 dataGenerator/raw/
 .vscode/
+tmp/
