@@ -122,3 +122,8 @@ def cast_to_image(tensor, normalize=True):
     if normalize:
         img = cv2.normalize(img, None, 0, 1, cv2.NORM_MINMAX)
     return img
+
+
+def load_vesde_model(ckpt_path):
+    # TODO
+    pass

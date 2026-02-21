@@ -10,7 +10,14 @@ from src.config.configloading import load_config
 from src.loss import calc_mse_loss
 from src.render import render, run_network
 from src.trainer import Trainer
-from src.utils import cast_to_image, get_mse, get_psnr, get_psnr_3d, get_ssim_3d
+from src.utils import (
+    cast_to_image,
+    get_mse,
+    get_psnr,
+    get_psnr_3d,
+    get_ssim_3d,
+    load_vesde_model,
+)
 
 
 def config_parser():

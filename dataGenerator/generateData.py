@@ -1,7 +1,7 @@
 import argparse
 import os
 
-os.environ["CUDA_VISIBLE_DEVICES"] = "1,2"
+os.environ["CUDA_VISIBLE_DEVICES"] = "1"
 import os.path as osp
 import pickle
 from pathlib import Path
@@ -37,16 +37,19 @@ def main():
     # dataFolder = args.dataFolder
     # outputName = args.outputName
     # outputFolder = args.outputFolder
-    configPath = f"dataGenerator/config_2views.yml"
-    for case in Path("/home/public/CTSpine1K/data/data-MHD_ctpro_woMask1").glob("*"):
-        if case.stem != "liver_6":
-            continue
-        matPath = str(case / "ct_file.mha")
-        outputPath = str(case / "data_2views.pickle")
-        # matPath = f"./dataGenerator/{dataFolder}/{dataType}/img.mat"
-        # configPath = f"./dataGenerator/{dataFolder}/{dataType}/config.yml"
-        # outputPath = osp.join(outputFolder, f"{outputName}.pickle")
-        generator(matPath, configPath, outputPath, True)
+    configPath = f"dataGenerator/config_IXI2views.yml"
+    # for case in Path("/home/public/CTSpine1K/data/data-MHD_ctpro_woMask1").glob("*"):
+    #     if case.stem != "liver_6":
+    #         continue
+    case = Path("/home/czfy/IXI_dataset/IXI_downsampledx4_iacl_SyN/IXI075-Guys-0754/")
+    # matPath = str(case / "ct_file.mha")
+    # outputPath = str(case / "data_2views.pickle")
+    matPath = str(case / "T1_gt.nii.gz")
+    outputPath = str(case / "data_2views.pickle")
+    # matPath = f"./dataGenerator/{dataFolder}/{dataType}/img.mat"
+    # configPath = f"./dataGenerator/{dataFolder}/{dataType}/config.yml"
+    # outputPath = osp.join(outputFolder, f"{outputName}.pickle")
+    generator(matPath, configPath, outputPath, True)
 
 
 # %% Geometry
@@ -276,15 +279,15 @@ def generator(matPath, configPath, outputPath, show=True):
         # save to tmp/
         os.makedirs("tmp", exist_ok=True)
         tigre.plotimg(
-            img.transpose((2, 0, 1)), dim="z", savegif="tmp/ct_image_2views.gif"
+            img.transpose((2, 0, 1)), dim="z", savegif="tmp/IXI_image_2views.gif"
         )
         tigre.plotproj(
             data["train"]["projections"][:, ::-1, :],
-            savegif="tmp/train_projections_2views.gif",
+            savegif="tmp/IXItrain_projections_2views.gif",
         )
         tigre.plotproj(
             data["val"]["projections"][:, ::-1, :],
-            savegif="tmp/val_projections_2views.gif",
+            savegif="tmp/IXIval_projections_2views.gif",
         )
 
     # Save data
