@@ -119,7 +119,7 @@ class VESDEGuidance(nn.Module):
         # L_sds = 0.5 * || x0 - (x0 - grad).detach() ||^2
         # 对 L_sds 求导 => dL/dx0 = (x0 - (x0 - grad)) = grad
 
-        target = (x0 - grad).detach()
+        target = (x0 + grad).detach()
         loss_sds = 0.5 * F.mse_loss(x0, target, reduction="mean")
 
         return loss_sds

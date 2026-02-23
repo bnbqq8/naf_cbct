@@ -268,7 +268,7 @@ class Trainer:
         batch_z = z_vals.expand(B, res, res) # [B, H, W]
         
         # 堆叠坐标: [B, H, W, 3]
-        coords_3d = torch.stack([batch_x, batch_y, batch_z], dim=-1)
+        coords_3d = torch.stack([batch_y, batch_x, batch_z], dim=-1)
         
         # 4. 展平并查询网络
         coords_flat = coords_3d.reshape(-1, 3) # [B*H*W, 3]

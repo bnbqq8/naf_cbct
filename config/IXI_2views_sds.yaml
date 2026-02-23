@@ -1,5 +1,5 @@
 exp:
-  expname: IXI075-Guys-0754-T1_2views_20260210_sds0.1_startFrom1000
+  expname: IXI075-Guys-0754-T1_2views_20260210_sds0.1_startFrom1000_x0+grad_coords3dYXZ
   expdir: ./logs/
   datadir: /home/czfy/IXI_dataset/IXI_downsampledx4_iacl_SyN/IXI075-Guys-0754/data_2views.pickle
 network:
