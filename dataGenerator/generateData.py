@@ -1,7 +1,7 @@
 import argparse
 import os
 
-os.environ["CUDA_VISIBLE_DEVICES"] = "1"
+os.environ["CUDA_VISIBLE_DEVICES"] = "2"
 import os.path as osp
 import pickle
 from pathlib import Path
@@ -17,38 +17,41 @@ import yaml
 from tigre.utilities import CTnoise, gpu
 from tigre.utilities.geometry import Geometry
 
-# def config_parser():
-#     parser = argparse.ArgumentParser()
-#     parser.add_argument("--ctName", default="chest", type=str,
-#                         help="Name of CT")
-#     parser.add_argument("--outputName", default="chest_50", type=str,
-#                         help="Name of output data")
-#     parser.add_argument("--dataFolder", default="raw", type=str,
-#                         help="folder of raw data")
-#     parser.add_argument("--outputFolder", default="./data", type=str,
-#                         help="folder of output data")
-#     return parser
+
+def config_parser():
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--configPath",
+        default="./dataGenerator/config_2views.yml",
+        type=str,
+        help="Path of config file",
+    )
+    parser.add_argument(
+        "--dataPath",
+        default="/home/public/CTSpine1K/data/data-MHD_ctpro_woMask1",
+        type=str,
+        help="Path of output data",
+    )
+    parser.add_argument(
+        "--case",
+        default="volume-covid19-A-0377_ct",
+        type=str,
+        help="Path of case folder, which should contain ct_file.mha",
+    )
+
+    parser.add_argument(
+        "--outputName", default="data_2views", type=str, help="Name of output data"
+    )
+    return parser
 
 
 def main():
-    # parser = config_parser()
-    # args = parser.parse_args()
-    # dataType = args.ctName
-    # dataFolder = args.dataFolder
-    # outputName = args.outputName
-    # outputFolder = args.outputFolder
-    configPath = f"dataGenerator/config_IXI2views.yml"
-    # for case in Path("/home/public/CTSpine1K/data/data-MHD_ctpro_woMask1").glob("*"):
-    #     if case.stem != "liver_6":
-    #         continue
-    case = Path("/home/czfy/IXI_dataset/IXI_downsampledx4_iacl_SyN/IXI075-Guys-0754/")
-    # matPath = str(case / "ct_file.mha")
-    # outputPath = str(case / "data_2views.pickle")
-    matPath = str(case / "T1_gt.nii.gz")
-    outputPath = str(case / "data_2views.pickle")
-    # matPath = f"./dataGenerator/{dataFolder}/{dataType}/img.mat"
-    # configPath = f"./dataGenerator/{dataFolder}/{dataType}/config.yml"
-    # outputPath = osp.join(outputFolder, f"{outputName}.pickle")
+    parser = config_parser()
+    args = parser.parse_args()
+    configPath = Path(args.configPath)
+    case = Path(args.dataPath) / Path(args.case)
+    matPath = str(case / "ct_file.mha")
+    outputPath = case / f"{args.outputName}.pickle"
     generator(matPath, configPath, outputPath, True)
 
 
@@ -133,18 +136,20 @@ def convert_to_attenuation(
 
 
 def loadImage(
-    dirname, nVoxels, convert, rescale_slope, rescale_intercept, normalize=True
+    test_data,
+    zoom_factor,
+    nVoxels,
+    convert,
+    rescale_slope,
+    rescale_intercept,
+    normalize=True,
+    percentile=False,
+    min=None,
+    max=None,
 ):
     """
     Load CT image.
     """
-
-    if nVoxels is None:
-        nVoxels = np.array((256, 256, 256))
-
-    # test_data = scipy.io.loadmat(dirname)
-    test_data = sitk.GetArrayFromImage(sitk.ReadImage(dirname))
-    test_data = np.transpose(test_data, (2, 1, 0)).astype(np.float32)
 
     # Loads data in F_CONTIGUOUS MODE (column major), convert to Row major
     image_ori = test_data
@@ -156,17 +161,13 @@ def loadImage(
 
     imageDim = image.shape
 
-    zoom_x = nVoxels[0] / imageDim[0]
-    zoom_y = nVoxels[1] / imageDim[1]
-    zoom_z = nVoxels[2] / imageDim[2]
-
-    if zoom_x != 1.0 or zoom_y != 1.0 or zoom_z != 1.0:
+    if zoom_factor != 1.0:
         print(
             f"Resize ct image from {imageDim[0]}x{imageDim[1]}x{imageDim[2]} to "
             f"{nVoxels[0]}x{nVoxels[1]}x{nVoxels[2]}"
         )
-        image = scipy.ndimage.interpolation.zoom(
-            image, (zoom_x, zoom_y, zoom_z), order=3, prefilter=False
+        image = scipy.ndimage.zoom(
+            image, (zoom_factor, zoom_factor, zoom_factor), order=3, prefilter=False
         )
 
     image_max = np.max(image)
@@ -177,9 +178,36 @@ def loadImage(
     )
     if normalize and image_min != 0 and image_max != 1:
         print("Normalize range to [0, 1]")
+        if percentile:
+            p1 = np.percentile(image, 0.05)
+            p99 = np.percentile(image, 99.9)
+            image = np.clip(image, p1, None)
+            image_min = p1
+            image_max = p99
+        else:
+            image_min = min if min is not None else image_min
+            image_max = max if max is not None else image_max
+            image = np.clip(image, image_min, None)
         image = (image - image_min) / (image_max - image_min)
 
     return image
+
+
+def calc_nDetector(DSD, DSO, nVoxel, dVoxel, dDetector):
+    """
+    Calculate number of detector pixels using similar similar triangles:
+    """
+    # nDetector_W/nVoxel_W = DSD/(DSO-nVoxel_W*dVoxel_W/2)
+    nVoxel_W = nVoxel[0]
+    nDetector_W = np.round(nVoxel_W * DSD / (DSO - nVoxel_W * dVoxel[0] / 2)).astype(
+        int
+    )
+    # nDetector_H/nVoxel_H = DSD/(DSO-nVoxel_H*dVoxel/2)
+    nVoxel_H = nVoxel[-1]
+    nDetector_H = np.round(nVoxel_H * DSD / (DSO - nVoxel_H * dVoxel[-1] / 2)).astype(
+        int
+    )
+    return [nDetector_W, nDetector_H]
 
 
 def generator(matPath, configPath, outputPath, show=True):
@@ -191,23 +219,41 @@ def generator(matPath, configPath, outputPath, show=True):
     # Load configuration
     with open(configPath, "r") as handle:
         data = yaml.safe_load(handle)
+    # load ct image
+    test_data = sitk.GetArrayFromImage(sitk.ReadImage(matPath))  # z,y,x
+    test_data = np.transpose(test_data, (2, 1, 0)).astype(np.float32)  # x,y,z
+    # overwrite nVoxel
+    target_img_size = 256
+    zoom_factor = target_img_size / test_data.shape[0]
+    data["nVoxel"] = [
+        target_img_size,
+        target_img_size,
+        round(test_data.shape[2] * zoom_factor),
+    ]
 
-    # Load CT image
-    geo = ConeGeometry_special(data)
+    # proprocessing
     img = loadImage(
-        matPath,
+        test_data,
+        zoom_factor,
         data["nVoxel"],
         data["convert"],
         data["rescale_slope"],
         data["rescale_intercept"],
         data["normalize"],
+        data["percentile"],
+        data["min"],
+        data["max"],
     )
     data["image"] = img.copy()
+    # calc nDetector
+    data["nDetector"] = calc_nDetector(
+        data["DSD"], data["DSO"], data["nVoxel"], data["dVoxel"], data["dDetector"]
+    )
 
     # plt.figure()
     # plt.imshow(img[:,:,0])
     # plt.show()
-
+    geo = ConeGeometry_special(data)
     # Generate training images
     if data["randomAngle"] is False:
         data["train"] = {
@@ -242,7 +288,7 @@ def generator(matPath, configPath, outputPath, show=True):
         data["train"]["projections"] = projections
 
     # Generate validation images
-    if "2view" in configPath:
+    if "2view" in configPath.name:
         data["val"] = {
             "angles": np.linspace(
                 0, data["totalAngle"] / 180 * np.pi, data["numTrain"] + 1
@@ -279,15 +325,15 @@ def generator(matPath, configPath, outputPath, show=True):
         # save to tmp/
         os.makedirs("tmp", exist_ok=True)
         tigre.plotimg(
-            img.transpose((2, 0, 1)), dim="z", savegif="tmp/IXI_image_2views.gif"
+            img.transpose((2, 0, 1)), dim="z", savegif=outputPath.parent / f"image.gif"
         )
         tigre.plotproj(
             data["train"]["projections"][:, ::-1, :],
-            savegif="tmp/IXItrain_projections_2views.gif",
+            savegif=outputPath.parent / f"train_projections.gif",
         )
         tigre.plotproj(
             data["val"]["projections"][:, ::-1, :],
-            savegif="tmp/IXIval_projections_2views.gif",
+            savegif=outputPath.parent / f"val_projections.gif",
         )
 
     # Save data

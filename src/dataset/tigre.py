@@ -1,9 +1,9 @@
-import torch
-import pickle
 import os
+import pickle
 import sys
-import numpy as np
 
+import numpy as np
+import torch
 from torch.utils.data import DataLoader, Dataset
 
 
@@ -66,7 +66,7 @@ class TIGREDataset(Dataset):
         self.geo = ConeGeometry(data)
         self.type = type
         self.n_rays = n_rays
-        self.near, self.far = self.get_near_far(self.geo)
+        self.near, self.far = self.get_near_far(self.geo, tolerance=0.0)
 
         if type == "train":
             self.projs = torch.tensor(
@@ -103,9 +103,9 @@ class TIGREDataset(Dataset):
             )
             self.coords = torch.reshape(coords, [-1, 2])
             self.image = torch.tensor(data["image"], dtype=torch.float32, device=device)
-            self.voxels = torch.tensor(
-                self.get_voxels(self.geo), dtype=torch.float32, device=device
-            )
+            # self.voxels = torch.tensor(
+            #     self.get_voxels(self.geo), dtype=torch.float32, device=device
+            # )
         elif type == "val":
             self.projs = torch.tensor(
                 data["val"]["projections"], dtype=torch.float32, device=device

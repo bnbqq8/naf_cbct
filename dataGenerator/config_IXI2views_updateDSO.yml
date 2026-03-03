@@ -1,19 +1,26 @@
 # Parameters to setup CT simulation.
 
 # dataset
-numTrain: 2
-numVal: 2
+numTrain: 50
+numVal: 50
 
 # System configuration
-DSD: 900.0  # Distance Source Detector      (mm)
-DSO: 772.0  # Distance Source Origin        (mm)
+DSD: 1800.0  # Distance Source Detector      (mm)
+DSO: 1672.0  # Distance Source Origin        (mm)
 
 # Detector parameters
+nDetector: # Number of pixels              (px)
+- 298
+- 298 
 dDetector: # Size of each pixel            (mm)
 - 1.0
 - 1.0
 
 # Image parameters
+nVoxel: # Number of voxels              (vx)
+- 256
+- 256
+- 173 
 dVoxel: # size of each voxel            (mm)
 - 1.0
 - 1.0
@@ -44,9 +51,8 @@ randomAngle: False
 convert: False
 rescale_slope: 1.0
 rescale_intercept: -1000.0
-normalize: False
-percentile: False
-min: 0.0
-max: 2500.0
+normalize: True
+percentile: True
+
 # Noise
 noise: True

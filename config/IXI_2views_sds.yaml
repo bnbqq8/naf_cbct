@@ -1,7 +1,8 @@
+# TORCH_CUDA_ARCH_LIST='8.6' CUDA_VISIBLE_DEVICES=2 /home/czfy/python train.py --config config/IXI_2views_sds.yaml
 exp:
-  expname: IXI075-Guys-0754-T1_2views_20260210_sds0.1_startFrom1000_x0+grad_coords3dYXZ
+  expname: updateDSO_updateNormalization_IXI075-Guys-0754-T1_2views_20260210_sds0.01_startFrom0_interval10_x0+grad_newBound_noNorm_noConvert
   expdir: ./logs/
-  datadir: /home/czfy/IXI_dataset/IXI_downsampledx4_iacl_SyN/IXI075-Guys-0754/data_2views.pickle
+  datadir: /home/czfy/IXI_dataset/IXI_downsampledx4_iacl_SyN/IXI075-Guys-0754/data_2views_updateDSO_updateNormalization_updateNoConvert.pickle
 network:
   net_type: mlp
   num_layers: 4
@@ -9,7 +10,7 @@ network:
   skips: [2]
   out_dim: 1
   last_activation: sigmoid
-  bound: 0.3
+  bound: 1.0
 encoder:
   encoding: hashgrid
   input_dim: 3
@@ -32,15 +33,15 @@ train:
   lrate_step: 1500
   resume: False
   sds:
-    interval: 5
+    interval: 10
     iterations: 1
     batch_size: 20
-    warmup_epochs: 1000
-    sds_weight: 0.1
+    warmup_epochs: 0
+    sds_weight: 0.01
     img_dims: [256,256,173]
-    spacing: 0.9375
+    spacing: 1.0
     ckpt_path: tmp/IXI_T1_ax.pth
     config_path: src/sde_configs/ve/IXI_256_ncsnpp_continuous.py
 log:
-  i_eval: 250  # Epoch for evaluation
+  i_eval: 100  # Epoch for evaluation
   i_save: 500  # Epoch for saving

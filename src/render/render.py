@@ -2,7 +2,26 @@ import torch
 import torch.nn as nn
 
 
-def render(rays, net, net_fine, n_samples, n_fine, perturb, netchunk, raw_noise_std):
+def bounding_points(pts, bound_box):
+    bx, by, bz = bound_box
+    # 1. 计算 Mask：哪些点在物理长方体内
+    in_bound_mask = (pts[..., 0] >= -bx) & (pts[..., 0] <= bx) & \
+                    (pts[..., 1] >= -by) & (pts[..., 1] <= by) & \
+                    (pts[..., 2] >= -bz) & (pts[..., 2] <= bz)
+    
+    # 2. 生成安全的查询坐标 (Clamp 防止越界)
+    pts_safe = pts.clone()
+    pts_safe[..., 0] = pts_safe[..., 0].clamp(-bx, bx)
+    pts_safe[..., 1] = pts_safe[..., 1].clamp(-by, by)
+    pts_safe[..., 2] = pts_safe[..., 2].clamp(-bz, bz)
+    
+    # ==================== 新增：坐标归一化 ====================
+    # 除以长方体边界，映射到 HashGrid 默认的 [-1, 1]
+    bound_tensor = torch.tensor([bx, by, bz], device=pts.device)
+    pts = pts_safe / bound_tensor
+    # ========================================================
+    return pts, in_bound_mask
+def render(rays, net, net_fine, n_samples, n_fine, perturb, netchunk, raw_noise_std,bound_box=None):
     n_rays = rays.shape[0]
     rays_o, rays_d, near, far = rays[...,:3], rays[...,3:6], rays[...,6:7], rays[...,7:]
 
@@ -21,10 +40,14 @@ def render(rays, net, net_fine, n_samples, n_fine, perturb, netchunk, raw_noise_
         z_vals = lower + (upper - lower) * t_rand
 
     pts = rays_o[..., None, :] + rays_d[..., None, :] * z_vals[..., :, None]  # [n_rays, n_samples, 3]
-    bound = net.bound - 1e-6
-    pts = pts.clamp(-bound, bound)
-
+    if bound_box is None:
+        bound = net.bound - 1e-6
+        pts = pts.clamp(-bound, bound)
+    else:
+        pts, in_bound_mask = bounding_points(pts, bound_box)
     raw = run_network(pts, net, netchunk)
+    if bound_box is not None:
+        raw[..., 0][~in_bound_mask] = 0.0 # 物理边界外的点密度设为0
     acc, weights = raw2outputs(raw, z_vals, rays_d, raw_noise_std)
 
     if net_fine is not None and n_fine > 0:
@@ -38,8 +61,14 @@ def render(rays, net, net_fine, n_samples, n_fine, perturb, netchunk, raw_noise_
 
         z_vals, _ = torch.sort(torch.cat([z_vals, z_samples], -1), -1)
         pts = rays_o[..., None, :] + rays_d[..., None, :] * z_vals[..., :, None]
-        pts = pts.clamp(-bound, bound)
+        if bound_box is None:
+            bound = net_fine.bound - 1e-6
+            pts = pts.clamp(-bound, bound)
+        else:
+            pts, in_bound_mask = bounding_points(pts, bound_box)
         raw = run_network(pts, net_fine, netchunk)
+        if bound_box is not None:
+            raw[..., 0][~in_bound_mask] = 0.0 # 物理边界外的点密度设为0
         acc, _ = raw2outputs(raw, z_vals, rays_d, raw_noise_std)
 
     ret = {"acc": acc, "pts":pts}

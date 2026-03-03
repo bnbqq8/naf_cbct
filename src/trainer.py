@@ -38,6 +38,7 @@ class Trainer:
             spacing = cfg["train"]["sds"].get("spacing", 1.0)
             self.bound_z = self.img_dims[2] * spacing / 2.0 /1000.0 # mm to m
             self.bound_xy = self.img_dims[0] * spacing / 2.0 /1000.0 # mm to m
+            self.bound_box = torch.tensor([self.bound_xy, self.bound_xy, self.bound_z], device=device)
             self.device = device
             # prepare vesde
             ckpt_path = cfg["train"]["sds"].get("ckpt_path", None)
@@ -268,10 +269,15 @@ class Trainer:
         batch_z = z_vals.expand(B, res, res) # [B, H, W]
         
         # 堆叠坐标: [B, H, W, 3]
-        coords_3d = torch.stack([batch_y, batch_x, batch_z], dim=-1)
+        coords_3d = torch.stack([batch_x, batch_y, batch_z], dim=-1)
         
         # 4. 展平并查询网络
         coords_flat = coords_3d.reshape(-1, 3) # [B*H*W, 3]
+        
+        # normalizing points coords
+        bound_tensor = torch.tensor(self.bound_box, device=self.device)
+        coords_flat = coords_flat / bound_tensor # normalize to [-1, 1]
+        
         
         # 使用你原有的 run_network
         from src.render.render import run_network 
@@ -280,11 +286,11 @@ class Trainer:
         # 5. 重塑与归一化
         pred_slices = density_flat.reshape(B, 1, res, res)
         
-        # 归一化 (根据你的 mu_water 调整)
-        scale_factor = 1.0 / (self.mu_water * 1.2) if hasattr(self, 'mu_water') else 10.0
-        pred_slices_norm = pred_slices * scale_factor
+        # # 归一化 (根据你的 mu_water 调整)
+        # scale_factor = 1.0 / (self.mu_water * 1.2) if hasattr(self, 'mu_water') else 10.0
+        # pred_slices_norm = pred_slices * scale_factor
         
-        return pred_slices_norm
+        return pred_slices
     
     def compute_loss(self, data, global_step, idx_epoch):
         """

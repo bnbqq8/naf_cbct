@@ -1,12 +1,14 @@
 import argparse
 import os
 import os.path as osp
+from math import e
 
 import imageio.v2 as iio
 import numpy as np
 import torch
+from zmq import has
 
-from src.config.configloading import load_config
+from src.config.configloading import load_config, save_cfg
 from src.loss import calc_mse_loss
 from src.render import render, run_network
 from src.trainer import Trainer
@@ -32,7 +34,7 @@ parser = config_parser()
 args = parser.parse_args()
 
 cfg = load_config(args.config)
-
+save_cfg(cfg)
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
@@ -47,7 +49,13 @@ class BasicTrainer(Trainer):
     def compute_loss(self, data, global_step, idx_epoch):
         rays = data["rays"].reshape(-1, 8)
         projs = data["projs"].reshape(-1)
-        ret = render(rays, self.net, self.net_fine, **self.conf["render"])
+        ret = render(
+            rays,
+            self.net,
+            self.net_fine,
+            bound_box=self.bound_box,
+            **self.conf["render"],
+        )
         projs_pred = ret["acc"]
 
         loss = {"loss": 0.0}
@@ -75,6 +83,7 @@ class BasicTrainer(Trainer):
                     rays[i : i + self.n_rays],
                     self.net,
                     self.net_fine,
+                    bound_box=self.bound_box,
                     **self.conf["render"],
                 )["acc"]
             )
@@ -82,8 +91,15 @@ class BasicTrainer(Trainer):
 
         # Evaluate density
         image = self.eval_dset.image
+        if hasattr(self, "bound_box"):
+            bound_tensor = (
+                self.bound_box.clone().detach().to(self.eval_dset.voxels.device)
+            )
+            voxels = self.eval_dset.voxels / bound_tensor
+        else:
+            voxels = self.eval_dset.voxels
         image_pred = run_network(
-            self.eval_dset.voxels,
+            voxels,
             self.net_fine if self.net_fine is not None else self.net,
             self.netchunk,
         )
