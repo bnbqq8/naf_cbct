@@ -1,7 +1,7 @@
 import argparse
 import os
 
-os.environ["CUDA_VISIBLE_DEVICES"] = "2"
+os.environ["CUDA_VISIBLE_DEVICES"] = "1"
 import os.path as osp
 import pickle
 from pathlib import Path
@@ -207,7 +207,7 @@ def calc_nDetector(DSD, DSO, nVoxel, dVoxel, dDetector):
     nDetector_H = np.round(nVoxel_H * DSD / (DSO - nVoxel_H * dVoxel[-1] / 2)).astype(
         int
     )
-    return [nDetector_W, nDetector_H]
+    return [nDetector_H, nDetector_W]
 
 
 def generator(matPath, configPath, outputPath, show=True):

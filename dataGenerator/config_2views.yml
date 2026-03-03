@@ -44,9 +44,9 @@ randomAngle: False
 convert: False
 rescale_slope: 1.0
 rescale_intercept: -1000.0
-normalize: False
+normalize: True
 percentile: False
 min: 0.0
 max: 2500.0
 # Noise
-noise: True
+noise: False
