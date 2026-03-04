@@ -1,8 +1,11 @@
+import shutil
+from pathlib import Path
+
 import yaml
 
 
 def load_config(path, default_path=None):
-    """ Loads config file.
+    """Loads config file.
 
     Args:
         path (str): path to config file
@@ -32,7 +35,7 @@ def load_config(path, default_path=None):
 
 
 def update_recursive(dict1, dict2):
-    """ Update two config dictionaries recursively.
+    """Update two config dictionaries recursively.
 
     Args:
         dict1 (dict): first dictionary to be updated
@@ -46,3 +49,16 @@ def update_recursive(dict1, dict2):
             update_recursive(dict1[k], v)
         else:
             dict1[k] = v
+
+
+def save_cfg(source_cfg_path, target_dir="./tmp/"):
+    """Saves config file.
+
+    Args:
+        cfg (dict): config dictionary to be saved
+        path (str): path to save config file
+    """
+    source_cfg_path = Path(source_cfg_path)
+    target_dir = Path(target_dir) / source_cfg_path.name
+    target_dir.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy(source_cfg_path, target_dir)

@@ -2,11 +2,11 @@ import argparse
 import os
 import os.path as osp
 from math import e
+from pathlib import Path
 
 import imageio.v2 as iio
 import numpy as np
 import torch
-from zmq import has
 
 from src.config.configloading import load_config, save_cfg
 from src.loss import calc_mse_loss
@@ -22,11 +22,39 @@ from src.utils import (
 )
 
 
+# TORCH_CUDA_ARCH_LIST="8.6" CUDA_VISIBLE_DEVICES=0 /home/czfy/python train.py --patient_id volume-covid19-A-0377_ct
 def config_parser():
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "--config", default="./config/abdomen_50.yaml", help="configs file path"
+        "--config",
+        default="./config/general_ct_2views_sds.yaml",
+        help="configs file path",
     )
+    parser.add_argument(
+        "--datadir",
+        default="/home/public/CTSpine1K/data/data-MHD_ctpro_woMask1/",
+        help="data directory",
+    )
+    parser.add_argument(
+        "--patient_id",
+        default="volume-covid19-A-0377_ct",
+        help="data directory",
+    )
+    parser.add_argument(
+        "--pickle_name",
+        default="data_2views.pickle",
+        help="data directory",
+    )
+    parser.add_argument(
+        "--expdir",
+        default="./logs/",
+        help="experiment name",
+    )
+    # parser.add_argument(
+    #     "--expname",
+    #     default="ct_2views_sds0.01_startFrom0_interval10",
+    #     help="experiment name",
+    # )
     return parser
 
 
@@ -34,7 +62,16 @@ parser = config_parser()
 args = parser.parse_args()
 
 cfg = load_config(args.config)
-save_cfg(cfg)
+# combine cfg with exp details from args
+datadir = Path(args.datadir) / args.patient_id / args.pickle_name
+cfg["exp"].update(
+    {
+        "datadir": str(datadir),
+        "expdir": args.expdir,
+        "patient_id": args.patient_id,
+    }
+)
+save_cfg(args.config, osp.join(cfg["exp"]["expdir"], cfg["exp"]["expname"]))
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
@@ -124,6 +161,7 @@ class BasicTrainer(Trainer):
                 )
             )
         show_density = torch.concat(show, dim=1)
+        projs, projs_pred = torch.t(projs), torch.t(projs_pred)
         show_proj = torch.concat([projs, projs_pred], dim=1)
 
         self.writer.add_image(
@@ -143,24 +181,29 @@ class BasicTrainer(Trainer):
             self.writer.add_scalar(f"eval/{ls}", loss[ls], global_step)
 
         # Save
-        eval_save_dir = osp.join(self.evaldir, f"epoch_{idx_epoch:05d}")
+        eval_save_dir = self.evaldir
         os.makedirs(eval_save_dir, exist_ok=True)
         np.save(
             osp.join(eval_save_dir, "image_pred.npy"), image_pred.cpu().detach().numpy()
         )
         np.save(osp.join(eval_save_dir, "image_gt.npy"), image.cpu().detach().numpy())
         iio.imwrite(
-            osp.join(eval_save_dir, "slice_show_row1_gt_row2_pred.png"),
+            osp.join(
+                eval_save_dir, f"epoch_{idx_epoch:05d}_slice_show_row1_gt_row2_pred.png"
+            ),
             (cast_to_image(show_density) * 255).astype(np.uint8),
         )
         iio.imwrite(
-            osp.join(eval_save_dir, "proj_show_left_gt_right_pred.png"),
+            osp.join(
+                eval_save_dir, f"epoch_{idx_epoch:05d}_proj_show_left_gt_right_pred.png"
+            ),
             (cast_to_image(show_proj) * 255).astype(np.uint8),
         )
-        with open(osp.join(eval_save_dir, "stats.txt"), "w") as f:
+        with open(osp.join(eval_save_dir, "stats.txt"), "a") as f:
+            f.write(f"epoch_{idx_epoch:05d}: ")
             for key, value in loss.items():
-                f.write("%s: %f\n" % (key, value.item()))
-
+                f.write("|%s: %f| " % (key, value.item()))
+            f.write("\n")
         return loss
 
 
