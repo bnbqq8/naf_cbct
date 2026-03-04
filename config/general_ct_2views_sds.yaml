@@ -1,0 +1,45 @@
+# TORCH_CUDA_ARCH_LIST='8.6' CUDA_VISIBLE_DEVICES=2 /home/czfy/python train.py --config config/IXI_2views_sds.yaml
+exp:
+  expname: ct_2views_sds0.1_startFrom0_interval10
+network:
+  net_type: mlp
+  num_layers: 4
+  hidden_dim: 32
+  skips: [2]
+  out_dim: 1
+  last_activation: sigmoid
+  bound: 1.0
+encoder:
+  encoding: hashgrid
+  input_dim: 3
+  num_levels: 16
+  level_dim: 2
+  base_resolution: 16
+  log2_hashmap_size: 19
+render:
+  n_samples: 512
+  n_fine: 0
+  perturb: True
+  raw_noise_std: 0.
+  netchunk: 8388608
+train:
+  epoch: 3000
+  n_batch: 1
+  n_rays: 4096
+  lrate: 0.001
+  lrate_gamma: 0.1
+  lrate_step: 1500
+  resume: False
+  sds:
+    interval: 10
+    iterations: 1
+    batch_size: 20
+    warmup_epochs: 0
+    sds_weight: 0.1
+    img_dims: [256,256,173]
+    spacing: 1.0
+    ckpt_path: /home/public/CTSpine1K/data/diffusion/checkpoint.pth
+    config_path: src/sde_configs/ve/IXI_256_ncsnpp_continuous.py
+log:
+  i_eval: 100  # Epoch for evaluation
+  i_save: 500  # Epoch for saving
