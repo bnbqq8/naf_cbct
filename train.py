@@ -22,7 +22,7 @@ from src.utils import (
 )
 
 
-# TORCH_CUDA_ARCH_LIST="8.6" CUDA_VISIBLE_DEVICES=0 /home/czfy/python train.py --patient_id volume-covid19-A-0377_ct
+# TORCH_CUDA_ARCH_LIST="8.6" CUDA_VISIBLE_DEVICES=4 ~/python_jym train.py --patient_id volume-covid19-A-0377_ct
 def config_parser():
     parser = argparse.ArgumentParser()
     parser.add_argument(
@@ -37,7 +37,7 @@ def config_parser():
     )
     parser.add_argument(
         "--patient_id",
-        default="volume-covid19-A-0377_ct",
+        default="volume-covid19-A-0320_ct",
         help="data directory",
     )
     parser.add_argument(
