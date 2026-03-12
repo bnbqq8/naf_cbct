@@ -38,7 +38,7 @@ def config_parser():
     )
     parser.add_argument(
         "--patient_id",
-        default="volume-covid19-A-0377_ct",
+        default="volume-covid19-A-0320_ct",
         help="data directory",
     )
     parser.add_argument(
