@@ -1,6 +1,6 @@
 # TORCH_CUDA_ARCH_LIST='8.6' CUDA_VISIBLE_DEVICES=2 /home/czfy/python train.py --config config/IXI_2views_sds.yaml
 exp:
-  expname: updateDSO_updateNormalization_IXI075-Guys-0754-T1_2views_20260210_sds0.01_startFrom0_interval10_x0+grad_newBound_noNorm_noConvert
+  expname: 20230305_IXI_2views_sag_centerPad_noLrSchedule_fixVESDEsag_annealing
   expdir: ./logs/
   datadir: /home/czfy/IXI_dataset/IXI_downsampledx4_iacl_SyN/IXI075-Guys-0754/data_2views_updateDSO_updateNormalization_updateNoConvert.pickle
 network:
@@ -29,7 +29,7 @@ train:
   n_batch: 1
   n_rays: 4096
   lrate: 0.001
-  lrate_gamma: 0.1
+  lrate_gamma: 1.0
   lrate_step: 1500
   resume: False
   sds:
@@ -42,6 +42,10 @@ train:
     spacing: 1.0
     ckpt_path: tmp/IXI_T1_ax.pth
     config_path: src/sde_configs/ve/IXI_256_ncsnpp_continuous.py
+    annealing: True
+    sag:
+      ckpt_path: tmp/IXI_T1_sag.pth
+      config_path: src/sde_configs/ve/IXI_256_ncsnpp_continuous.py
 log:
   i_eval: 100  # Epoch for evaluation
   i_save: 500  # Epoch for saving

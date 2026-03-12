@@ -1,6 +1,7 @@
 import json
 import os
 import os.path as osp
+from calendar import c
 from shutil import copyfile
 
 import numpy as np
@@ -42,7 +43,26 @@ class Trainer:
                 raise ValueError(
                     "SDS enabled but 'ckpt_path' or 'config_path' is missing in config."
                 )
-            self.vesde_guidance = VESDEGuidance(config_path, ckpt_path, device=device)
+            self.vesde_guidance = VESDEGuidance(
+                config_path,
+                ckpt_path,
+                annealing=cfg["train"]["sds"].get("annealing", False),
+                device=device,
+            )
+            self.sag = cfg["train"]["sds"].get("sag", None)
+            if self.sag is not None:
+                config_path = self.sag.get("config_path", None)
+                ckpt_path = self.sag.get("ckpt_path", None)
+                if ckpt_path is None or config_path is None:
+                    raise ValueError(
+                        "SAG enabled but 'ckpt_path' or 'config_path' is missing in config."
+                    )
+                self.vesde_guidance_sag = VESDEGuidance(
+                    config_path,
+                    ckpt_path,
+                    annealing=cfg["train"]["sds"].get("annealing", False),
+                    device=device,
+                )
         # Log direcotry
         self.expdir = osp.join(
             cfg["exp"]["expdir"], cfg["exp"]["expname"], cfg["exp"]["patient_id"]
@@ -225,7 +245,7 @@ class Trainer:
         updates_count = 0
 
         # 获取体积的总层数，例如 256
-        D = self.img_dims[2]
+        W, _, D = self.img_dims
 
         # 设置 SDS 的 Batch Size (显存允许的情况下尽量大，比如 4, 8, 16)
         # 建议在 config 里配置 self.sds_batch_size
@@ -234,9 +254,16 @@ class Trainer:
         # 设置 SDS 内部迭代次数
         iterations = getattr(self, "sds_iterations", 1)
 
+        # 计算当前训练进度的比例，用于时间步采样的 annealing
+        step_ratio = (idx_epoch - self.sds_warmup_epochs) / (
+            self.epochs - self.sds_warmup_epochs
+        )
+        step_ratio = max(0.0, min(1.0, step_ratio))
+
         # ===========================
         # 需求 2: sds_iteration 循环
         # ===========================
+        # ax
         for it in range(iterations):
 
             # 生成所有切片的索引列表 [0, 1, ..., D-1]
@@ -261,10 +288,6 @@ class Trainer:
                 pred_slices = self.sample_slice_batch(batch_indices, res=256)
 
                 # 3. 计算 SDS Loss
-                step_ratio = (
-                    global_step / self.max_steps if hasattr(self, "max_steps") else 0.5
-                )
-
                 # 注意：vesde_guidance 需要能处理 batch 输入 [B, 1, H, W]
                 # 大多数实现都支持自动 broadcasting
                 loss_sds_val = self.vesde_guidance.train_step(
@@ -282,11 +305,66 @@ class Trainer:
                 # 统计 Loss
                 total_sds_loss += loss_sds_val.item()
                 updates_count += 1
+        # sag
+        if self.sag is not None:
+            all_indices = torch.arange(W, device=self.device)
+            perm = torch.randperm(W, device=self.device)
+            all_indices = all_indices[perm]
+            batches = torch.split(all_indices, batch_size)
+            for it in range(iterations):
+                # 生成所有切片的索引列表 [0, 1, ..., D-1]
+                all_indices = torch.arange(W, device=self.device)
 
+                # 打乱顺序 (Shuffle)，这对 SGD 很重要，避免网络记住了切片顺序
+                perm = torch.randperm(W, device=self.device)
+                all_indices = all_indices[perm]
+
+                # ===========================
+                # 需求 1: 遍历所有 Slices (Mini-batch Loop)
+                # ===========================
+                # 将索引按 batch_size 切分
+                batches = torch.split(all_indices, batch_size)
+
+                for batch_indices in batches:
+                    # 1. 清空梯度 (每个 mini-batch 都要更新一次参数)
+                    self.optimizer.zero_grad()
+
+                    # 2. 采样指定的切片 Batch
+                    # batch_indices 是一个 tensor, 如 [0, 15, 32, ...]
+                    pred_slices = self.sample_slice_batch(
+                        batch_indices, res=256, direction="sag"
+                    )
+                    # 2.1. pad to (256, 256)
+                    pred_slices = self.pad_to_size(pred_slices, target_size=(256, 256))
+
+                    # 3. 计算 SDS Loss
+                    step_ratio = (
+                        global_step / self.max_steps
+                        if hasattr(self, "max_steps")
+                        else 0.5
+                    )
+
+                    # 注意：vesde_guidance 需要能处理 batch 输入 [B, 1, H, W]
+                    # 大多数实现都支持自动 broadcasting
+                    loss_sds_val = self.vesde_guidance_sag.train_step(
+                        pred_slices, step_ratio=step_ratio
+                    )
+
+                    # 4. 加权
+                    # loss_sds_val 通常已经是 batch 的平均值
+                    loss_final = self.lambda_sds * loss_sds_val
+
+                    # 5. 反向传播与更新
+                    loss_final.backward()
+                    self.optimizer.step()
+
+                    # 统计 Loss
+                    total_sds_loss += loss_sds_val.item()
+                    updates_count += 1
         # 返回平均 Loss
         return total_sds_loss / max(updates_count, 1)
 
-    def sample_slice_batch(self, z_indices, res=256):
+    def sample_slice_batch(self, z_indices, res=256, direction="ax"):
         """
         根据指定的 z 轴索引生成切片 Batch
         Args:
@@ -299,23 +377,40 @@ class Trainer:
         # NAF 通常定义在 [-self.bound, self.bound]
         # 公式: -bound + (idx / (D-1)) * 2 * bound
         # 假设 self.img_dims[2] 是 Z 轴的总层数 (e.g., 256)
-        D = self.img_dims[2]
-        z_vals = -self.bound_z + (z_indices / (D - 1.0)) * 2.0 * self.bound_z
+        D = self.img_dims[2] if direction == "ax" else self.img_dims[0]
+        bound_slice = self.bound_z if direction == "ax" else self.bound_xy
+        z_vals = -bound_slice + (z_indices / (D - 1.0)) * 2.0 * bound_slice
         z_vals = z_vals.to(self.device).view(-1, 1, 1)  # [B, 1, 1]
-
-        # 2. 构建 XY 网格 (所有切片共用)
-        coords = torch.linspace(-self.bound_xy, self.bound_xy, res, device=self.device)
-        grid_x, grid_y = torch.meshgrid(coords, coords, indexing="ij")  # [H, W]
-
-        # 3. 扩展为 Batch 坐标
-        # grid_x, grid_y: [H, W] -> [B, H, W]
         B = z_indices.shape[0]
-        batch_x = grid_x.unsqueeze(0).expand(B, -1, -1)
-        batch_y = grid_y.unsqueeze(0).expand(B, -1, -1)
-        batch_z = z_vals.expand(B, res, res)  # [B, H, W]
+        # 2. 构建 XY 网格 (所有切片共用)
+        if direction == "ax":
+            coords = torch.linspace(
+                -self.bound_xy, self.bound_xy, res, device=self.device
+            )
+            grid_x, grid_y = torch.meshgrid(coords, coords, indexing="ij")  # [H, W]
+            # 3. 扩展为 Batch 坐标
+            # grid_x, grid_y: [H, W] -> [B, H, W]
+            batch_x = grid_x.unsqueeze(0).expand(B, -1, -1)
+            batch_y = grid_y.unsqueeze(0).expand(B, -1, -1)
+            batch_z = z_vals.expand(B, res, res)  # [B, H, W]
 
-        # 堆叠坐标: [B, H, W, 3]
-        coords_3d = torch.stack([batch_x, batch_y, batch_z], dim=-1)
+            # 堆叠坐标: [B, H, W, 3]
+            coords_3d = torch.stack([batch_x, batch_y, batch_z], dim=-1)
+        elif direction == "sag":
+            coords_y = torch.linspace(
+                -self.bound_xy, self.bound_xy, res, device=self.device
+            )
+            coords_z = torch.linspace(
+                -self.bound_z, self.bound_z, self.img_dims[2], device=self.device
+            )
+            grid_y, grid_z = torch.meshgrid(coords_y, coords_z, indexing="ij")  # [H, W]
+            batch_y = grid_y.unsqueeze(0).expand(B, -1, -1)
+            batch_z = grid_z.unsqueeze(0).expand(B, -1, -1)
+            batch_x = z_vals.expand(B, res, self.img_dims[2])  # [B, H, W]
+
+            coords_3d = torch.stack([batch_x, batch_y, batch_z], dim=-1)
+        else:
+            raise ValueError(f"Unsupported direction: {direction}")
 
         # 4. 展平并查询网络
         coords_flat = coords_3d.reshape(-1, 3)  # [B*H*W, 3]
@@ -329,7 +424,11 @@ class Trainer:
         density_flat = run_network(coords_flat, self.net, self.netchunk)
 
         # 5. 重塑与归一化
-        pred_slices = density_flat.reshape(B, 1, res, res)
+        pred_slices = (
+            density_flat.reshape(B, 1, res, res)
+            if direction == "ax"
+            else density_flat.reshape(B, 1, res, self.img_dims[2])
+        )
 
         # # 归一化 (根据你的 mu_water 调整)
         # scale_factor = 1.0 / (self.mu_water * 1.2) if hasattr(self, 'mu_water') else 10.0
@@ -348,3 +447,18 @@ class Trainer:
         Evaluation step
         """
         raise NotImplementedError()
+
+    def pad_to_size(self, x, target_size=(256, 256)):
+        """
+        将输入张量 x 填充到目标大小，支持梯度回传
+        """
+        *batch_dims, h, w = x.shape
+        th, tw = target_size
+
+        # 创建画布
+        canvas = torch.zeros((*batch_dims, th, tw), device=x.device, dtype=x.dtype)
+        start_h = (th - h) // 2
+        start_w = (tw - w) // 2
+        # 如果想靠左上角对齐：
+        canvas[..., start_h : start_h + h, start_w : start_w + w] = x
+        return canvas
