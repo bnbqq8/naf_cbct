@@ -24,6 +24,7 @@ from src.utils import (
 
 # TORCH_CUDA_ARCH_LIST="8.6" CUDA_VISIBLE_DEVICES=3 /home/czfy/python train.py --config './config/IXI_2views_sds.yaml' --datadir '/home/czfy/IXI_dataset/IXI_downsampledx4_iacl_SyN/' --patient_id 'IXI075-Guys-0754' --pickle_name 'data_2views_updateDSO_updateNormalization_updateNoConvert.pickle'
 # TORCH_CUDA_ARCH_LIST="8.6" CUDA_VISIBLE_DEVICES=0 /home/czfy/python train.py --patient_id volume-covid19-A-0377_ct
+# TORCH_CUDA_ARCH_LIST="8.6" CUDA_VISIBLE_DEVICES=4 ~/python_jym train.py --patient_id volume-covid19-A-0377_ct
 def config_parser():
     parser = argparse.ArgumentParser()
     parser.add_argument(
@@ -38,7 +39,7 @@ def config_parser():
     )
     parser.add_argument(
         "--patient_id",
-        default="volume-covid19-A-0377_ct",
+        default="volume-covid19-A-0320_ct",
         help="data directory",
     )
     parser.add_argument(
