@@ -62,15 +62,32 @@ class TIGREDataset(Dataset):
 
         with open(path, "rb") as handle:
             data = pickle.load(handle)
-
+        self.dVoxel = data["dVoxel"]
+        assert (
+            self.dVoxel[0] == self.dVoxel[1] == self.dVoxel[2]
+        ), "Non-isotropic voxel size is not supported. Get dVoxel: {}".format(
+            self.dVoxel
+        )
         self.geo = ConeGeometry(data)
+        # =====================================================================
+        # TIGRE 投影的行=Z(旋转轴), 列=横向(Y), 但 NAF 的 get_rays 中
+        # 行(vv)→世界Y, 列(uu)→世界Z。对非立方体体积需要转置投影并交换探测器参数。
+        # =====================================================================
+        self.geo.nDetector = self.geo.nDetector[::-1]
+        self.geo.dDetector = self.geo.dDetector[::-1]
+        self.geo.sDetector = self.geo.nDetector * self.geo.dDetector
+        self.geo.offDetector = self.geo.offDetector[::-1]
+
         self.type = type
         self.n_rays = n_rays
         self.near, self.far = self.get_near_far(self.geo, tolerance=0.0)
 
         if type == "train":
+            # 转置投影: [N, H_tigre, W_tigre] → [N, W_tigre, H_tigre]
+            projs_raw = data["train"]["projections"]
+            projs_transposed = np.transpose(projs_raw, (0, 2, 1))
             self.projs = torch.tensor(
-                data["train"]["projections"], dtype=torch.float32, device=device
+                projs_transposed, dtype=torch.float32, device=device
             )
             angles = data["train"]["angles"]
             rays = self.get_rays(angles, self.geo, device)
@@ -87,14 +104,14 @@ class TIGREDataset(Dataset):
                 torch.meshgrid(
                     torch.linspace(
                         0,
-                        self.geo.nDetector[1] - 1,
-                        self.geo.nDetector[1],
+                        self.geo.nDetector[0] - 1,
+                        self.geo.nDetector[0],
                         device=device,
                     ),
                     torch.linspace(
                         0,
-                        self.geo.nDetector[0] - 1,
-                        self.geo.nDetector[0],
+                        self.geo.nDetector[1] - 1,
+                        self.geo.nDetector[1],
                         device=device,
                     ),
                     indexing="ij",
@@ -107,8 +124,11 @@ class TIGREDataset(Dataset):
             #     self.get_voxels(self.geo), dtype=torch.float32, device=device
             # )
         elif type == "val":
+            # 转置投影: [N, H_tigre, W_tigre] → [N, W_tigre, H_tigre]
+            projs_raw = data["val"]["projections"]
+            projs_transposed = np.transpose(projs_raw, (0, 2, 1))
             self.projs = torch.tensor(
-                data["val"]["projections"], dtype=torch.float32, device=device
+                projs_transposed, dtype=torch.float32, device=device
             )
             angles = data["val"]["angles"]
             rays = self.get_rays(angles, self.geo, device)
@@ -137,6 +157,17 @@ class TIGREDataset(Dataset):
                 coords_valid.shape[0], size=[self.n_rays], replace=False
             )
             select_coords = coords_valid[select_inds].long()
+            # if index == 0:
+            #     H_ray = self.rays.shape[1]
+            #     W_ray = self.rays.shape[2]
+            #     print(f"\n--- Shape Debug ---")
+            #     print(f"projs shape : {self.projs.shape}")
+            #     print(f"rays shape  : {self.rays.shape}")
+            #     print(
+            #         f"coords max  : [c0_max: {select_coords[:, 0].max().item()}, c1_max: {select_coords[:, 1].max().item()}]"
+            #     )
+            #     print(f"-------------------\n")
+
             rays = self.rays[index, select_coords[:, 0], select_coords[:, 1]]
             projs = self.projs[index, select_coords[:, 0], select_coords[:, 1]]
             out = {
@@ -176,7 +207,7 @@ class TIGREDataset(Dataset):
         Get rays given one angle and x-ray machine geometry.
         """
 
-        W, H = geo.nDetector
+        H, W = geo.nDetector
         DSD = geo.DSD
         rays = []
 
@@ -185,27 +216,27 @@ class TIGREDataset(Dataset):
             rays_o, rays_d = None, None
             if geo.mode == "cone":
                 i, j = torch.meshgrid(
-                    torch.linspace(0, W - 1, W, device=device),
                     torch.linspace(0, H - 1, H, device=device),
+                    torch.linspace(0, W - 1, W, device=device),
                     indexing="ij",
                 )  # pytorch"s meshgrid has indexing="ij"
-                uu = (i.t() + 0.5 - W / 2) * geo.dDetector[0] + geo.offDetector[0]
-                vv = (j.t() + 0.5 - H / 2) * geo.dDetector[1] + geo.offDetector[1]
-                dirs = torch.stack([uu / DSD, vv / DSD, torch.ones_like(uu)], -1)
+                vv = (i + 0.5 - H / 2) * geo.dDetector[0] + geo.offDetector[0]
+                uu = (j + 0.5 - W / 2) * geo.dDetector[1] + geo.offDetector[1]
+                dirs = torch.stack([vv / DSD, uu / DSD, torch.ones_like(uu)], -1)
                 rays_d = torch.sum(
                     torch.matmul(pose[:3, :3], dirs[..., None]).to(device), -1
                 )  # pose[:3, :3] *
                 rays_o = pose[:3, -1].expand(rays_d.shape)
             elif geo.mode == "parallel":
                 i, j = torch.meshgrid(
-                    torch.linspace(0, W - 1, W, device=device),
                     torch.linspace(0, H - 1, H, device=device),
+                    torch.linspace(0, W - 1, W, device=device),
                     indexing="ij",
                 )  # pytorch"s meshgrid has indexing="ij"
-                uu = (i.t() + 0.5 - W / 2) * geo.dDetector[0] + geo.offDetector[0]
-                vv = (j.t() + 0.5 - H / 2) * geo.dDetector[1] + geo.offDetector[1]
+                vv = (i + 0.5 - H / 2) * geo.dDetector[0] + geo.offDetector[0]
+                uu = (j + 0.5 - W / 2) * geo.dDetector[1] + geo.offDetector[1]
                 dirs = torch.stack(
-                    [torch.zeros_like(uu), torch.zeros_like(uu), torch.ones_like(uu)],
+                    [torch.zeros_like(vv), torch.zeros_like(vv), torch.ones_like(vv)],
                     -1,
                 )
                 rays_d = torch.sum(
@@ -214,7 +245,7 @@ class TIGREDataset(Dataset):
                 rays_o = torch.sum(
                     torch.matmul(
                         pose[:3, :3],
-                        torch.stack([uu, vv, torch.zeros_like(uu)], -1)[..., None],
+                        torch.stack([vv, uu, torch.zeros_like(vv)], -1)[..., None],
                     ).to(device),
                     -1,
                 ) + pose[:3, -1].expand(rays_d.shape)
