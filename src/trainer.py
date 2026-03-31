@@ -13,6 +13,7 @@ from .dataset import TIGREDataset as Dataset
 from .encoder import get_encoder
 from .loss.vesde_loss import VESDEGuidance
 from .network import get_network
+from .render import render
 
 
 class Trainer:
@@ -361,6 +362,77 @@ class Trainer:
                     # 统计 Loss
                     total_sds_loss += loss_sds_val.item()
                     updates_count += 1
+        # 返回平均 Loss
+        return total_sds_loss / max(updates_count, 1)
+
+    def train_step_sds_with_fidelity(self, global_step, idx_epoch, projs):
+        """
+        修正后的 SDS 训练步：全切片覆盖 + 多轮迭代
+        """
+        total_sds_loss = 0.0
+        updates_count = 0
+
+        # 获取体积的总层数，例如 256
+        W, _, D = self.img_dims
+
+        # 设置 SDS 的 Batch Size (显存允许的情况下尽量大，比如 4, 8, 16)
+        # 建议在 config 里配置 self.sds_batch_size
+        batch_size = getattr(self, "sds_batch_size", 8)
+
+        # 设置 SDS 内部迭代次数
+        iterations = getattr(self, "sds_iterations", 1)
+
+        # 计算当前训练进度的比例，用于时间步采样的 annealing
+        step_ratio = (idx_epoch - self.sds_warmup_epochs) / (
+            self.epochs - self.sds_warmup_epochs
+        )
+        step_ratio = max(0.0, min(1.0, step_ratio))
+
+        # ===========================
+        # 需求 2: sds_iteration 循环
+        # ===========================
+        # ax
+        for it in range(iterations):
+
+            # 生成所有切片的索引列表 [0, 1, ..., D-1]
+            all_indices = torch.arange(D, device=self.device)
+
+            # # 打乱顺序 (Shuffle)，这对 SGD 很重要，避免网络记住了切片顺序
+            # perm = torch.randperm(D, device=self.device)
+            # all_indices = all_indices[perm]
+
+            # ===========================
+            # 需求 1: 遍历所有 Slices (Mini-batch Loop)
+            # ===========================
+            # 将索引按 batch_size 切分
+            batches = torch.split(all_indices, batch_size)
+            # 1. 清空梯度 (每个 mini-batch 都要更新一次参数)
+            self.optimizer.zero_grad()
+            hatx0_list = []
+            for batch_indices in batches:
+                # 2. 采样指定的切片 Batch
+                # batch_indices 是一个 tensor, 如 [0, 15, 32, ...]
+                pred_slices = self.sample_slice_batch(batch_indices, res=256)
+
+                # 3. 计算 SDS Loss
+                # 注意：vesde_guidance 需要能处理 batch 输入 [B, 1, H, W]
+                # 大多数实现都支持自动 broadcasting
+                loss_sds_val, hatx0 = self.vesde_guidance.train_step_with_Fidelity(
+                    pred_slices, step_ratio=step_ratio
+                )
+                hatx0_list.append(hatx0)
+                # 4. 加权
+                # loss_sds_val 通常已经是 batch 的平均值
+                loss_final = self.lambda_sds * loss_sds_val
+
+                # 5. 反向传播与更新
+                loss_final.backward()
+                self.optimizer.step()
+
+                # 统计 Loss
+                total_sds_loss += loss_sds_val.item()
+                updates_count += 1
+            scrambled_hatx0 = torch.cat(hatx0_list, dim=0)
         # 返回平均 Loss
         return total_sds_loss / max(updates_count, 1)
 
