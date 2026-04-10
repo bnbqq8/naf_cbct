@@ -16,9 +16,8 @@ from ..utils import sde_lib
 
 
 class VESDEGuidance(nn.Module):
-    def __init__(self, config_path, ckpt_path, annealing=False, device="cuda"):
+    def __init__(self, config_path, ckpt_path, device="cuda"):
         super().__init__()
-        self.annealing = annealing
         self.device = device
 
         # 1. 动态加载 Config (.py 文件)
@@ -56,8 +55,6 @@ class VESDEGuidance(nn.Module):
         for p in self.model.parameters():
             p.requires_grad = False
 
-        self.eps = 1e-5
-
     def _load_config_from_path(self, path):
         """Helper to load config from a python file path."""
         spec = importlib.util.spec_from_file_location("config", path)
@@ -80,10 +77,7 @@ class VESDEGuidance(nn.Module):
         # VE-SDE 的时间范围通常是 [0, 1] (continuous)
         # 为了数值稳定性，通常避免 t=0，使用极小值 eps
         eps = 1e-5
-        if self.annealing:
-            t = self.sample_t_annealing(batch_size, step_ratio)
-        else:
-            t = torch.rand(batch_size, device=self.device) * (self.sde.T - eps) + eps
+        t = torch.rand(batch_size, device=self.device) * (self.sde.T - eps) + eps
 
         # 2. 前向加噪 (Forward SDE)
         # x_t = x_0 + sigma_t * z
@@ -129,18 +123,3 @@ class VESDEGuidance(nn.Module):
         loss_sds = 0.5 * F.mse_loss(x0, target, reduction="mean")
 
         return loss_sds
-
-    def sample_t_annealing(self, batch_size, step_ratio):
-        max_t_start = self.sde.T * 0.8
-        max_t_end = self.sde.T * 0.2
-
-        min_t_start = self.eps
-        min_t_end = self.sde.T * 0.02
-
-        current_max_t = max_t_start - step_ratio * (max_t_start - max_t_end)
-        current_min_t = min_t_start + step_ratio * (min_t_end - min_t_start)
-
-        return (
-            torch.rand(batch_size, device=self.device) * (current_max_t - current_min_t)
-            + current_min_t
-        )
