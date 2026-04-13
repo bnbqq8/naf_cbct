@@ -219,36 +219,36 @@ class Trainer:
                                 .get("sds", {})
                                 .get("fidelity_res", 256)
                             )
-                            # offload_diffusion = (
-                            #     self.conf.get("train", {})
-                            #     .get("sds", {})
-                            #     .get("fidelity_offload_diffusion", True)
-                            # )
-                            # offload_naf = (
-                            #     self.conf.get("train", {})
-                            #     .get("sds", {})
-                            #     .get("fidelity_offload_naf", False)
-                            # )
-                            # if self.conf.get("encoder", {}).get("encoding") == "hashgrid":
-                            #     offload_naf = False
-                            # if offload_diffusion:
-                            #     self.vesde_guidance.model.to("cpu")
-                            #     if torch.cuda.is_available():
-                            #         torch.cuda.empty_cache()
-                            # if offload_naf:
-                            #     self.net.to("cpu")
-                            #     if torch.cuda.is_available():
-                            #         torch.cuda.empty_cache()
+                            offload_diffusion = (
+                                self.conf.get("train", {})
+                                .get("sds", {})
+                                .get("fidelity_offload_diffusion", True)
+                            )
+                            offload_naf = (
+                                self.conf.get("train", {})
+                                .get("sds", {})
+                                .get("fidelity_offload_naf", False)
+                            )
+                            if self.conf.get("encoder", {}).get("encoding") == "hashgrid":
+                                offload_naf = False
+                            if offload_diffusion:
+                                self.vesde_guidance.model.to("cpu")
+                                if torch.cuda.is_available():
+                                    torch.cuda.empty_cache()
+                            if offload_naf:
+                                self.net.to("cpu")
+                                if torch.cuda.is_available():
+                                    torch.cuda.empty_cache()
                             x0_vol = self.sample_volume(res=fidelity_res, direction="ax")
-                            # if offload_naf:
-                            #     self.net.to(self.device)
-                            #     if torch.cuda.is_available():
-                            #         torch.cuda.empty_cache()
-                            # if offload_diffusion:
-                            #     self.vesde_guidance.model.to(self.device)
-                            #     if torch.cuda.is_available():
-                            #         torch.cuda.empty_cache()
-                            # x0_vol = x0_vol.float()
+                            if offload_naf:
+                                self.net.to(self.device)
+                                if torch.cuda.is_available():
+                                    torch.cuda.empty_cache()
+                            if offload_diffusion:
+                                self.vesde_guidance.model.to(self.device)
+                                if torch.cuda.is_available():
+                                    torch.cuda.empty_cache()
+                            x0_vol = x0_vol.float()
                             eval_index = self.conf["train"]["sds"].get(
                                 "fidelity_eval_index", 0
                             )
@@ -622,10 +622,9 @@ class Trainer:
         z = torch.randn_like(x0_slices)
         mean, std = self.vesde_guidance.sde.marginal_prob(x0_slices, t_full)
         sigma_t = std[:, None, None, None]
-        # x_t = mean + sigma_t * z
-        x_t = (mean + sigma_t * z).detach().requires_grad_(True)
+        x_t = mean + sigma_t * z
 
-        # x_t.requires_grad_(True)
+        x_t.requires_grad_(True)
 
         grad_sds_list = []
         x0_hat_list = []
@@ -703,9 +702,7 @@ class Trainer:
         # ========== 步骤 6: 构建代理损失 ==========
         target = (x0_vol + grad_corrected).detach()
         loss_sds = 0.5 * F.mse_loss(x0_vol, target, reduction="mean")
-        self.optimizer.zero_grad()
-        loss_sds.backward()
-        self.optimizer.step()
+
         # ========== 总损失 ==========
         loss_total = loss_sds
 
@@ -850,9 +847,9 @@ class Trainer:
 
             coords_flat = coords_3d.reshape(-1, 3)
             coords_flat = coords_flat / self.bound_box
-            # with torch.no_grad():
-            with torch.cuda.amp.autocast(enabled=amp_enabled):
-                density_flat = run_network(coords_flat, self.net, netchunk)
+            with torch.no_grad():
+                with torch.cuda.amp.autocast(enabled=amp_enabled):
+                    density_flat = run_network(coords_flat, self.net, netchunk)
             volume_slices.append(density_flat.reshape(H, W))
 
         volume = torch.stack(volume_slices, dim=0)

@@ -1,6 +1,6 @@
 # TORCH_CUDA_ARCH_LIST='8.6' CUDA_VISIBLE_DEVICES=2 /home/czfy/python train.py --config config/IXI_2views_sds.yaml
 exp:
-  expname: ct_2views_sds0.05_startFrom1000_interval10_noLrSchedule
+  expname: 20260410_CT_1views_centerPad_noLrSchedule_fixVESDEsag_annealing_sds0.005_startFrom0_interval10_nopaas_fidelity+更改trainer.py
 network:
   net_type: mlp
   num_layers: 4
@@ -23,23 +23,36 @@ render:
   raw_noise_std: 0.
   netchunk: 8388608
 train:
-  epoch: 4000
+  epoch: 3000
   n_batch: 1
   n_rays: 4096
   lrate: 0.001
   lrate_gamma: 0.1
-  lrate_step: 4000
+  lrate_step: 3000
   resume: False
   sds:
     interval: 10
     iterations: 1
     batch_size: 20
-    warmup_epochs: 1000
-    sds_weight: 0.05
+    warmup_epochs: 0
+    sds_weight: 0.005
+    use_paas: False
+    paas_k: 4
+    paas_rho: 0.1
+    use_fidelity: True
+    fidelity_weight: 0.05
+    fidelity_start_epoch: 0
+    fidelity_slice_chunk: 8
+    fidelity_rays_chunk: 4096
+    fidelity_eval_index: 0
     img_dims: [256,256,173]
     spacing: 1.0
-    ckpt_path: /home/public/CTSpine1K/data/diffusion/checkpoint.pth
+    ckpt_path: /home/public/CTSpine1K/data/diffusion/checkpoint_ax.pth
     config_path: src/sde_configs/ve/IXI_256_ncsnpp_continuous.py
+    # annealing: True
+    # sag:
+    #   ckpt_path: /home/public/CTSpine1K/data/diffusion/checkpoint_sag.pth
+    #   config_path: src/sde_configs/ve/IXI_256_ncsnpp_continuous.py
 log:
   i_eval: 100  # Epoch for evaluation
   i_save: 500  # Epoch for saving
