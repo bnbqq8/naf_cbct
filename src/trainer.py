@@ -677,10 +677,10 @@ class Trainer:
         sigma_t_full = sigma_t_full.permute(0, 2, 1, 3, 4)  # [1, 1, D, H, W]
 
         # ========== 步骤 5a: Rays + grid_sample 正向投影 ==========
-        # x0_hat_proj = x0_hat.clone().detach()
+        x0_hat_proj = x0_hat.clone().detach().requires_grad_(True)
 
         proj_pred = self.vesde_guidance._project_volume_with_rays(
-            x0_hat, rays, bound_box, n_samples, rays_chunk
+            x0_hat_proj, rays, bound_box, n_samples, rays_chunk
         )
 
         # ========== 步骤 5b: 计算投影残差梯度 ==========
@@ -689,12 +689,10 @@ class Trainer:
         # 计算梯度 ∇_{x0_hat} ||y - A(x0_hat)||^2
         grad_fidelity = torch.autograd.grad(
             loss_fidelity_proj,
-            x_t,
+            x0_hat_proj,
             create_graph=False,
             retain_graph=False,
         )[0]
-        if grad_fidelity.dim() == 4:
-            grad_fidelity = grad_fidelity.unsqueeze(0).permute(0, 2, 1, 3, 4)
 
         # ========== 步骤 5c: 梯度修正 ==========
         grad_sds.addcmul_(sigma_t_full, grad_fidelity, value=-fidelity_weight)
@@ -850,9 +848,9 @@ class Trainer:
 
             coords_flat = coords_3d.reshape(-1, 3)
             coords_flat = coords_flat / self.bound_box
-            # with torch.no_grad():
-            with torch.cuda.amp.autocast(enabled=amp_enabled):
-                density_flat = run_network(coords_flat, self.net, netchunk)
+            with torch.no_grad():
+                with torch.cuda.amp.autocast(enabled=amp_enabled):
+                    density_flat = run_network(coords_flat, self.net, netchunk)
             volume_slices.append(density_flat.reshape(H, W))
 
         volume = torch.stack(volume_slices, dim=0)

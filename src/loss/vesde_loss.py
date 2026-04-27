@@ -255,10 +255,10 @@ class VESDEGuidance(nn.Module):
         sigma_t_full = sigma_t_full.permute(0, 2, 1, 3, 4)  # [1, 1, D, H, W]
 
         # ========== 步骤 5a: Rays + grid_sample 正向投影 ==========
-        # x0_hat_proj = x0_hat.clone().detach()
+        x0_hat_proj = x0_hat.clone().detach().requires_grad_(True)
 
         proj_pred = self._project_volume_with_rays(
-            x0_hat, rays, bound_box, n_samples, rays_chunk
+            x0_hat_proj, rays, bound_box, n_samples, rays_chunk
         )
 
         # ========== 步骤 5b: 计算投影残差梯度 ==========
@@ -267,12 +267,10 @@ class VESDEGuidance(nn.Module):
         # 计算梯度 ∇_{x0_hat} ||y - A(x0_hat)||^2
         grad_fidelity = torch.autograd.grad(
             loss_fidelity_proj,
-            x_t,
+            x0_hat_proj,
             create_graph=False,
             retain_graph=False,
-        )[
-            0
-        ]  # [1, 1, D, H, W]
+        )[0]  # [1, 1, D, H, W]
 
         # ========== 步骤 5c: 梯度修正 ==========
         grad_corrected = (
